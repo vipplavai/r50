@@ -31,8 +31,8 @@ warnings.filterwarnings("ignore", message="`clean_up_tokenization_spaces` was no
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 # Set environment variables for NCCL debugging
-os.environ['NCCL_DEBUG'] = 'INFO'
-os.environ['NCCL_DEBUG_SUBSYS'] = 'ALL'
+# os.environ['NCCL_DEBUG'] = 'INFO'
+# os.environ['NCCL_DEBUG_SUBSYS'] = 'ALL'
 # os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
 
 def get_gpu_metrics():
@@ -449,7 +449,7 @@ def main():
     # Set parameters directly in the code
     script_dir = os.path.dirname(os.path.abspath(__file__))
     epochs = 1
-    batch_size = 16
+    batch_size = 32
     learning_rate = 5e-4
     checkpoint_dir = 'checkpoints/'
     log_dir = 'logs/'
