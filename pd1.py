@@ -447,12 +447,13 @@ def main():
         logging.info(f"Total GPU Power Draw across all nodes: {total_power_all_nodes} W")
 
     # Set parameters directly in the code
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     epochs = 1
     batch_size = 16
     learning_rate = 5e-4
     checkpoint_dir = 'checkpoints/'
     log_dir = 'logs/'
-    tokenizer_path = 'tokenizer/custom_bpe_tokenizer.json'
+    tokenizer_path = os.path.join(script_dir, 'tokenizer', 'custom_bpe_tokenizer.json')
     dataset_name = 'Vipplav/phase_1_3M'
     resume_from_checkpoint = False
     accumulation_steps = 4
