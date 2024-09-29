@@ -35,6 +35,23 @@ os.environ['NCCL_DEBUG'] = 'INFO'
 os.environ['NCCL_DEBUG_SUBSYS'] = 'ALL'
 # os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
 
+def get_gpu_metrics():
+    try:
+        result = subprocess.check_output(
+            ['nvidia-smi', '--query-gpu=memory.total,power.draw', '--format=csv,noheader,nounits'],
+            encoding='utf-8'
+        )
+        lines = result.strip().split('\n')
+        total_memory = 0
+        total_power = 0.0
+        for line in lines:
+            memory_str, power_str = line.split(',')
+            total_memory += int(memory_str.strip())
+            total_power += float(power_str.strip())
+        return total_memory, total_power
+    except Exception as e:
+        logging.error(f"Error getting GPU metrics: {e}")
+        return 0, 0.0
 
 def setup(rank, world_size):
     try:
@@ -410,7 +427,24 @@ def main():
     # Set up logging before calling setup()
     setup_logging('logs/', rank)
 
+    # Initialize process group
     setup(rank, world_size)
+
+    device = set_device()
+
+    # Get GPU metrics on this node
+    total_memory, total_power = get_gpu_metrics()
+
+    # Gather metrics from all nodes
+    metrics = (total_memory, total_power)
+    gathered_metrics = [None for _ in range(world_size)]
+    dist.all_gather_object(gathered_metrics, metrics)
+
+    if rank == 0:
+        total_memory_all_nodes = sum(mem for mem, power in gathered_metrics)
+        total_power_all_nodes = sum(power for mem, power in gathered_metrics)
+        logging.info(f"Total GPU Memory across all nodes: {total_memory_all_nodes} MB")
+        logging.info(f"Total GPU Power Draw across all nodes: {total_power_all_nodes} W")
 
     # Set parameters directly in the code
     epochs = 1
@@ -423,11 +457,11 @@ def main():
     resume_from_checkpoint = False
     accumulation_steps = 4
 
-    device = set_device()
     set_seed()
 
     # Create necessary directories
-    create_directories([checkpoint_dir, log_dir])
+    if rank == 0:
+        create_directories([checkpoint_dir, log_dir])
 
     writer = setup_tensorboard(log_dir) if rank == 0 else None
 
