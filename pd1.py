@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # Set environment variables for NCCL debugging
 os.environ['NCCL_DEBUG'] = 'INFO'
 os.environ['NCCL_DEBUG_SUBSYS'] = 'ALL'
-os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
+#os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
 
 
 def setup(rank, world_size):
@@ -399,8 +399,8 @@ def main():
     setup(rank, world_size)
 
     # Set parameters directly in the code
-    epochs = 10
-    batch_size = 8
+    epochs = 1
+    batch_size = 16
     learning_rate = 5e-4
     checkpoint_dir = 'checkpoints/'
     log_dir = 'logs/'
