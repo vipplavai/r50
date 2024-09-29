@@ -1,0 +1,39 @@
+(ddp_setup) vineel-vaddi@vineel-vaddi-Sword-15-A12VE:~/r50$ torchrun --nproc_per_node=1 --nnodes=2 --node_rank=1 --master_addr=192.168.1.15 --master_port=29500 2.py --phase 1 --epochs 10 --batch_size 16
+Traceback (most recent call last):
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/bin/torchrun", line 8, in <module>
+    sys.exit(main())
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 346, in wrapper
+    return f(*args, **kwargs)
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/run.py", line 762, in main
+    run(args)
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/run.py", line 753, in run
+    elastic_launch(
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/launcher/api.py", line 132, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/launcher/api.py", line 237, in launch_agent
+    result = agent.run()
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/metrics/api.py", line 129, in wrapper
+    result = f(*args, **kwargs)
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/agent/server/api.py", line 709, in run
+    result = self._invoke_run(role)
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/agent/server/api.py", line 844, in _invoke_run
+    self._initialize_workers(self._worker_group)
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/metrics/api.py", line 129, in wrapper
+    result = f(*args, **kwargs)
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/agent/server/api.py", line 678, in _initialize_workers
+    self._rendezvous(worker_group)
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/metrics/api.py", line 129, in wrapper
+    result = f(*args, **kwargs)
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/agent/server/api.py", line 541, in _rendezvous
+    workers = self._assign_worker_ranks(store, group_rank, group_world_size, spec)
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/metrics/api.py", line 129, in wrapper
+    result = f(*args, **kwargs)
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/agent/server/api.py", line 610, in _assign_worker_ranks
+    role_infos = self._share_and_gather(store, group_rank, group_world_size, spec)
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/agent/server/api.py", line 647, in _share_and_gather
+    role_infos_bytes = store_util.synchronize(
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/utils/store.py", line 64, in synchronize
+    agent_data = get_all(store, rank, key_prefix, world_size)
+  File "/home/vineel-vaddi/miniconda3/envs/ddp_setup/lib/python3.8/site-packages/torch/distributed/elastic/utils/store.py", line 34, in get_all
+    data = store.get(f"{prefix}{idx}")
+RuntimeError: Stop_waiting response is expected
