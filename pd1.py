@@ -35,6 +35,8 @@ os.environ['NCCL_DEBUG'] = 'INFO'
 os.environ['NCCL_DEBUG_SUBSYS'] = 'ALL'
 os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
 
+# Set the correct network interface (replace 'eth0' with your interface)
+os.environ['NCCL_SOCKET_IFNAME'] = 'eth0'  # Replace 'eth0' with your network interface
 
 def setup(rank, world_size):
     try:
@@ -44,9 +46,13 @@ def setup(rank, world_size):
 
         # Log the master address and port
         logging.info(f"[Rank {rank}] MASTER_ADDR: {master_addr}, MASTER_PORT: {master_port}")
+        logging.info(f"[Rank {rank}] NCCL_SOCKET_IFNAME: {os.environ.get('NCCL_SOCKET_IFNAME', '')}")
 
         # Initialize the process group
-        dist.init_process_group("nccl", rank=rank, world_size=world_size)
+        dist.init_process_group(
+            backend='nccl',
+            init_method='env://'
+        )
         torch.cuda.set_device(0)  # All nodes have a single GPU at index 0
         logging.info(f"[Rank {rank}] Distributed environment initialized with world size {world_size}.")
 
