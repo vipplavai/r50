@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # Set environment variables for NCCL debugging
 os.environ['NCCL_DEBUG'] = 'INFO'
 os.environ['NCCL_DEBUG_SUBSYS'] = 'ALL'
-#os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
+# os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
 
 
 def setup(rank, world_size):
@@ -228,14 +228,17 @@ def setup_tensorboard(log_dir):
     return writer
 
 
-def log_metrics(writer, epoch, training_loss, validation_loss, train_perplexity, val_perplexity, tokens_processed_train, tokens_processed_val, epoch_time):
+def log_metrics(writer, epoch, training_loss, validation_loss, train_perplexity, val_perplexity,
+                tokens_processed_train, tokens_processed_val, epoch_time, avg_tokens_per_node, comm_time):
     writer.add_scalar('Loss/Training', training_loss, epoch)
     writer.add_scalar('Loss/Validation', validation_loss, epoch)
     writer.add_scalar('Perplexity/Training', train_perplexity, epoch)
     writer.add_scalar('Perplexity/Validation', val_perplexity, epoch)
     writer.add_scalar('Tokens_Processed/Training', tokens_processed_train, epoch)
     writer.add_scalar('Tokens_Processed/Validation', tokens_processed_val, epoch)
+    writer.add_scalar('Tokens_Processed/Avg_per_Node', avg_tokens_per_node, epoch)
     writer.add_scalar('Time/Epoch', epoch_time, epoch)
+    writer.add_scalar('Time/Communication', comm_time, epoch)
     writer.flush()
 
 
@@ -246,9 +249,13 @@ def train(model, dataloader, optimizer, scheduler, device, accumulation_steps, e
     tokens_processed = 0
     scaler = GradScaler()
     optimizer.zero_grad()
+    comm_time = 0.0  # To measure communication time
+    compute_time = 0.0  # To measure computation time
+
     progress_bar = tqdm(enumerate(dataloader), total=len(dataloader), desc=f"Training Epoch {epoch}", disable=(dist.get_rank() != 0))
 
     for step, batch in progress_bar:
+        start_compute = time.time()
         inputs = batch['input_ids'].to(device)
         labels = batch['labels'].to(device)
 
@@ -257,12 +264,19 @@ def train(model, dataloader, optimizer, scheduler, device, accumulation_steps, e
             loss = outputs.loss / accumulation_steps
 
         scaler.scale(loss).backward()
+        end_compute = time.time()
+        compute_time += end_compute - start_compute
 
         if (step + 1) % accumulation_steps == 0 or (step + 1) == len(dataloader):
+            torch.cuda.synchronize()
+            start_comm = time.time()
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad()
             scheduler.step()
+            torch.cuda.synchronize()
+            end_comm = time.time()
+            comm_time += end_comm - start_comm
 
         batch_loss = loss.item() * accumulation_steps
         total_loss += batch_loss * inputs.size(0)
@@ -287,7 +301,7 @@ def train(model, dataloader, optimizer, scheduler, device, accumulation_steps, e
         avg_loss = None
         perplexity = None
 
-    return avg_loss, perplexity, tokens_processed_tensor.item()
+    return avg_loss, perplexity, tokens_processed_tensor.item(), comm_time
 
 
 def evaluate(model, dataloader, device):
@@ -447,6 +461,11 @@ def main():
     if rank == 0:
         logging.info(f"DataLoaders created. Training batches: {len(train_dataloader)}, Validation batches: {len(val_dataloader)}")
 
+    # Adjust accumulation steps to maintain effective batch size
+    accumulation_steps = max(1, accumulation_steps // world_size)
+    if rank == 0:
+        logging.info(f"Adjusted Accumulation Steps: {accumulation_steps}")
+
     # Initialize model
     checkpoint_path = None
     if resume_from_checkpoint:
@@ -454,10 +473,14 @@ def main():
     model = initialize_model(tokenizer, checkpoint_path=checkpoint_path, device=device)
 
     # Set up optimizer and scheduler
-    num_training_steps = epochs * len(train_dataloader) // accumulation_steps
+    num_training_steps = epochs * (len(train_dataloader) * world_size) // accumulation_steps
     num_warmup_steps = int(0.1 * num_training_steps)  # 10% warmup
     optimizer = setup_optimizer(model, learning_rate)
     scheduler = setup_scheduler(optimizer, num_warmup_steps, num_training_steps)
+
+    if rank == 0:
+        logging.info(f"Number of training steps: {num_training_steps}")
+        logging.info(f"Number of warmup steps: {num_warmup_steps}")
 
     # Barrier to ensure all processes have initialized the model, optimizer, and scheduler
     dist.barrier()
@@ -478,7 +501,7 @@ def main():
             logging.info(f"Starting epoch {epoch}/{epochs} for Phase 1")
         epoch_start_time = time.time()
 
-        train_loss, train_perplexity, tokens_processed_train = train(
+        train_loss, train_perplexity, tokens_processed_train, comm_time = train(
             model, train_dataloader, optimizer, scheduler, device, accumulation_steps, epoch, train_sampler
         )
 
@@ -486,16 +509,20 @@ def main():
 
         epoch_time = time.time() - epoch_start_time
 
+        avg_tokens_per_node = tokens_processed_train / world_size
+
         if rank == 0:
             logging.info(f"Epoch {epoch} completed in {epoch_time:.2f}s")
             logging.info(f"Epoch {epoch}: Train Loss = {train_loss:.4f}, Val Loss = {val_loss:.4f}")
             logging.info(f"Epoch {epoch}: Train Perplexity = {train_perplexity:.4f}, Val Perplexity = {val_perplexity:.4f}")
             logging.info(f"Epoch {epoch}: Tokens Processed (Train) = {tokens_processed_train}, Tokens Processed (Val) = {tokens_processed_val}")
+            logging.info(f"Epoch {epoch}: Average Tokens per Node = {avg_tokens_per_node}")
+            logging.info(f"Epoch {epoch}: Communication Time = {comm_time:.2f}s")
 
             # Log metrics
             log_metrics(
                 writer, epoch, train_loss, val_loss, train_perplexity, val_perplexity,
-                tokens_processed_train, tokens_processed_val, epoch_time
+                tokens_processed_train, tokens_processed_val, epoch_time, avg_tokens_per_node, comm_time
             )
 
             # Save the best model
