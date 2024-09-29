@@ -35,8 +35,6 @@ os.environ['NCCL_DEBUG'] = 'INFO'
 os.environ['NCCL_DEBUG_SUBSYS'] = 'ALL'
 os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
 
-# Set the correct network interface (replace 'eth0' with your interface)
-os.environ['NCCL_SOCKET_IFNAME'] = 'eth0'  # Replace 'eth0' with your network interface
 
 def setup(rank, world_size):
     try:
@@ -46,7 +44,10 @@ def setup(rank, world_size):
 
         # Log the master address and port
         logging.info(f"[Rank {rank}] MASTER_ADDR: {master_addr}, MASTER_PORT: {master_port}")
-        logging.info(f"[Rank {rank}] NCCL_SOCKET_IFNAME: {os.environ.get('NCCL_SOCKET_IFNAME', '')}")
+
+        # Log NCCL_SOCKET_IFNAME if set
+        nccl_socket_ifname = os.environ.get('NCCL_SOCKET_IFNAME')
+        logging.info(f"[Rank {rank}] NCCL_SOCKET_IFNAME: {nccl_socket_ifname}")
 
         # Initialize the process group
         dist.init_process_group(
@@ -247,7 +248,7 @@ def train(model, dataloader, optimizer, scheduler, device, accumulation_steps, e
     optimizer.zero_grad()
     progress_bar = tqdm(enumerate(dataloader), total=len(dataloader), desc=f"Training Epoch {epoch}", disable=(dist.get_rank() != 0))
 
-    for step, (batch_idx, batch) in progress_bar:
+    for step, batch in progress_bar:
         inputs = batch['input_ids'].to(device)
         labels = batch['labels'].to(device)
 
@@ -335,14 +336,16 @@ class CustomDataCollator:
     def __call__(self, features):
         # Extract input_tokens and target_token from each feature
         input_texts = [feature['original'] for feature in features]
+        target_texts = [feature['target_token'] for feature in features]
         # Combine input and target for tokenization
-        combined_texts = [text + feature['target_token'] for text, feature in zip(input_texts, features)]
+        combined_texts = [text + tgt for text, tgt in zip(input_texts, target_texts)]
 
         # Tokenize and encode inputs and labels together
         encoding = self.tokenizer(
             combined_texts,
             padding=True,
             truncation=True,
+            max_length=512,  # Specify max_length to avoid warnings
             return_tensors='pt'
         )
 
