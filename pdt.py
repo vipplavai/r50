@@ -451,7 +451,7 @@ def main():
     # Set parameters directly in the code
     script_dir = os.path.dirname(os.path.abspath(__file__))
     epochs = 1
-    batch_size = 16
+    batch_size = 8
     learning_rate = 5e-4
     checkpoint_dir = 'checkpoints/'
     log_dir = 'logs/'
