@@ -202,10 +202,10 @@ def setup_optimizer(model, learning_rate):
     return optimizer
 
 
-def setup_scheduler(optimizer, num__steps, num_training_steps):
-    scheduler = get_linear_schedule_with_(
+def setup_scheduler(optimizer, num_warmup_steps, num_training_steps):
+    scheduler = get_linear_schedule_with_warmup(
         optimizer,
-        num__steps=num__steps,
+        num_warmup_steps=num_warmup_steps,
         num_training_steps=num_training_steps
     )
     return scheduler
@@ -287,10 +287,11 @@ def train(model, dataloader, optimizer, scheduler, device, accumulation_steps, e
         if (step + 1) % accumulation_steps == 0 or (step + 1) == len(dataloader):
             torch.cuda.synchronize()
             start_comm = time.time()
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad()
-            scheduler.step()
+            # Corrected order of operations
+            scaler.step(optimizer)  # First, update the optimizer
+            scaler.update()         # Then, update the scaler
+            scheduler.step()        # Finally, update the learning rate scheduler
+            optimizer.zero_grad()   # Reset the gradients for the next iteration
             torch.cuda.synchronize()
             end_comm = time.time()
             comm_time += end_comm - start_comm
@@ -319,6 +320,7 @@ def train(model, dataloader, optimizer, scheduler, device, accumulation_steps, e
         perplexity = None
 
     return avg_loss, perplexity, tokens_processed_tensor.item(), comm_time
+
 
 
 def evaluate(model, dataloader, device):
@@ -509,10 +511,10 @@ def main():
 
     # Set up optimizer and scheduler
     num_training_steps = epochs * (len(train_dataloader) * world_size) // accumulation_steps
-    num_warmup_steps = int(0.01 * num_training_steps)  # 10% warmup
-    scheduler = setup_scheduler(optimizer, num_warmup_steps, num_training_steps)
+    num_warmup_steps = int(0.01 * num_training_steps)  # 1% warmup
     optimizer = setup_optimizer(model, learning_rate)
-    
+    scheduler = setup_scheduler(optimizer, num_warmup_steps, num_training_steps)
+
     if rank == 0:
         logging.info(f"Number of training steps: {num_training_steps}")
         logging.info(f"Number of warmup steps: {num_warmup_steps}")
