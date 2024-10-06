@@ -202,10 +202,10 @@ def setup_optimizer(model, learning_rate):
     return optimizer
 
 
-def setup_scheduler(optimizer, num_warmup_steps, num_training_steps):
-    scheduler = get_linear_schedule_with_warmup(
+def setup_scheduler(optimizer, num__steps, num_training_steps):
+    scheduler = get_linear_schedule_with_(
         optimizer,
-        num_warmup_steps=num_warmup_steps,
+        num__steps=num__steps,
         num_training_steps=num_training_steps
     )
     return scheduler
@@ -509,10 +509,10 @@ def main():
 
     # Set up optimizer and scheduler
     num_training_steps = epochs * (len(train_dataloader) * world_size) // accumulation_steps
-    num_warmup_steps = int(0.1 * num_training_steps)  # 10% warmup
-    optimizer = setup_optimizer(model, learning_rate)
+    num_warmup_steps = int(0.01 * num_training_steps)  # 10% warmup
     scheduler = setup_scheduler(optimizer, num_warmup_steps, num_training_steps)
-
+    optimizer = setup_optimizer(model, learning_rate)
+    
     if rank == 0:
         logging.info(f"Number of training steps: {num_training_steps}")
         logging.info(f"Number of warmup steps: {num_warmup_steps}")
