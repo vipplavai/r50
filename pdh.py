@@ -264,7 +264,7 @@ def main():
     # Initialize W&B logging only on Rank 0
     if rank == 0:
         import wandb
-        wandb.init(project="ddp_training_project", sync_tensorboard=True, mode="async")
+        wandb.init(project="ddp_training_project", sync_tensorboard=True, mode="online")
 
     # Barrier to ensure all processes have finished setup
     dist.barrier()
