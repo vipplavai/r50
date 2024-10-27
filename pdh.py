@@ -26,6 +26,7 @@ from torch.utils.data.distributed import DistributedSampler
 # Suppress specific deprecation warnings
 warnings.filterwarnings("ignore", message="`clean_up_tokenization_spaces` was not set")
 warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message="Detected call of `lr_scheduler.step()` before `optimizer.step()`")
 
 # Set NCCL environment variables based on your network capabilities
 os.environ['NCCL_SOCKET_IFNAME'] = 'enp0s31f6'  # Replace with your network interface
@@ -160,7 +161,7 @@ def load_dataset_phase1(dataset_name):
 
     return train_dataset, val_dataset
 
-def initialize_model(tokenizer, checkpoint_path=None, device=None):
+def initialize_model(tokenizer, device=None):
     model_config = GPT2Config(
         vocab_size=len(tokenizer),
         n_positions=512,
@@ -177,11 +178,7 @@ def initialize_model(tokenizer, checkpoint_path=None, device=None):
     model.resize_token_embeddings(len(tokenizer))
     logging.info("Resized model embeddings to match tokenizer")
 
-    if checkpoint_path and os.path.exists(checkpoint_path):
-        model.load_state_dict(torch.load(os.path.join(checkpoint_path, 'pytorch_model.bin'), map_location='cpu'))
-        logging.info(f"Loaded model from checkpoint: {checkpoint_path}")
-    else:
-        logging.info("Initialized model from scratch")
+    logging.info("Initialized model")
 
     model.to(device)
     # No need to wrap with DDP; Trainer will handle it
@@ -264,7 +261,7 @@ def main():
     # Initialize W&B logging only on Rank 0
     if rank == 0:
         import wandb
-        wandb.init(project="ddp_training_project", sync_tensorboard=True, mode="online")
+        wandb.init(project="ddp_training_project", mode="online")
 
     # Barrier to ensure all processes have finished setup
     dist.barrier()
@@ -278,10 +275,7 @@ def main():
     data_collator = CustomDataCollator(tokenizer)
 
     # Initialize model
-    checkpoint_path = None
-    if resume_from_checkpoint:
-        checkpoint_path = checkpoint_dir  # The Trainer will look for the latest checkpoint here
-    model = initialize_model(tokenizer, checkpoint_path=checkpoint_path, device=device)
+    model = initialize_model(tokenizer, device=device)
 
     # Adjust TrainingArguments
     training_args = TrainingArguments(
@@ -312,9 +306,6 @@ def main():
     # Enable CUDA optimizations
     torch.backends.cudnn.benchmark = True
 
-    # Suppress specific warnings
-    warnings.filterwarnings("ignore", message="Detected call of `lr_scheduler.step()` before `optimizer.step()`")
-
     # Initialize Trainer
     trainer = Trainer(
         model=model,
@@ -331,7 +322,7 @@ def main():
         if os.path.isdir(checkpoint_dir):
             checkpoints = [os.path.join(checkpoint_dir, d) for d in os.listdir(checkpoint_dir) if d.startswith('checkpoint-')]
             if checkpoints:
-                # Find the best checkpoint
+                # Find the latest checkpoint
                 last_checkpoint = max(checkpoints, key=os.path.getctime)
         if last_checkpoint is not None:
             logging.info(f"Resuming training from checkpoint: {last_checkpoint}")
