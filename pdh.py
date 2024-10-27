@@ -189,29 +189,23 @@ class CustomDataCollator:
         self.tokenizer = tokenizer
 
     def __call__(self, features):
-        # Extract input_tokens and target_token from each feature
-        input_texts = [feature['original'] for feature in features]
-        target_texts = [feature['target_token'] for feature in features]
-        # Combine input and target for tokenization
-        combined_texts = [text + tgt for text, tgt in zip(input_texts, target_texts)]
+        # Adjusted to use available keys in the dataset
+        input_ids_list = [feature['input_ids'] for feature in features]
+        target_ids = [feature['target_id'] for feature in features]
 
-        # Tokenize and encode inputs and labels together
-        encoding = self.tokenizer(
-            combined_texts,
-            padding=True,
-            truncation=True,
-            max_length=512,  # Specify max_length to avoid warnings
-            return_tensors='pt'
-        )
+        # Combine input_ids and target_id
+        input_ids = [ids + [target_id] for ids, target_id in zip(input_ids_list, target_ids)]
 
-        input_ids = encoding['input_ids']
-        labels = input_ids.clone()
+        # Pad sequences
+        encoding = self.tokenizer.pad({'input_ids': input_ids}, return_tensors='pt')
+
+        labels = encoding['input_ids'].clone()
 
         # Shift labels to align with inputs
-        labels[:, :-1] = input_ids[:, 1:]
-        labels[:, -1] = -100  # We can ignore the last token
+        labels[:, :-1] = labels[:, 1:]
+        labels[:, -1] = -100  # Ignore the last token
 
-        return {'input_ids': input_ids, 'labels': labels}
+        return {'input_ids': encoding['input_ids'], 'labels': labels}
 
 def main():
     # Get rank and world size from environment variables
@@ -301,6 +295,8 @@ def main():
         optim="adamw_torch",
         lr_scheduler_type="linear",
         save_total_limit=1,  # Save only the best checkpoint
+        remove_unused_columns=False,  # Keep all columns in the dataset
+        run_name="ddp_training_run",  # Set a run name to avoid W&B warning
     )
 
     # Enable CUDA optimizations
