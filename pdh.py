@@ -149,7 +149,7 @@ def load_tokenizer(tokenizer_path):
         logging.info("Added pad_token to tokenizer")
     return tokenizer
 
-def load_dataset_phase1(dataset_name):
+def load_dataset_phase1(dataset_name, tokenizer):
     logging.info(f"Loading dataset for Phase 1: {dataset_name}")
 
     # Load dataset from Hugging Face Hub
@@ -249,9 +249,11 @@ class CustomWandbCallback(TrainerCallback):
             if 'loss' in logs:
                 train_perplexity = math.exp(logs['loss'])
                 wandb.log({'train_perplexity': train_perplexity})
+                wandb.log({'training_loss': logs['loss']})
             if 'eval_loss' in logs:
                 eval_perplexity = math.exp(logs['eval_loss'])
                 wandb.log({'eval_perplexity': eval_perplexity})
+                wandb.log({'validation_loss': logs['eval_loss']})
 
     def on_train_batch_end(self, args, state, control, **kwargs):
         # batch is in kwargs['inputs']
@@ -332,7 +334,7 @@ def main():
     # Load tokenizer and dataset
     tokenizer_path = os.path.abspath(tokenizer_path)
     tokenizer = load_tokenizer(tokenizer_path)
-    train_dataset, val_dataset = load_dataset_phase1(dataset_name)
+    train_dataset, val_dataset = load_dataset_phase1(dataset_name, tokenizer)
 
     # Prepare data collator
     data_collator = CustomDataCollator(tokenizer)
