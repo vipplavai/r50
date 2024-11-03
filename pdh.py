@@ -149,23 +149,16 @@ def load_tokenizer(tokenizer_path):
         logging.info("Added pad_token to tokenizer")
     return tokenizer
 
-def load_dataset_phase1(dataset_name, tokenizer):
+def load_dataset_phase1(dataset_name):
     logging.info(f"Loading dataset for Phase 1: {dataset_name}")
 
     # Load dataset from Hugging Face Hub
     raw_datasets = load_dataset(dataset_name)
     logging.info("Dataset loaded successfully.")
 
-    # Tokenize the datasets
-    def tokenize_function(examples):
-        return tokenizer(examples["text"], truncation=True)
-
-    tokenized_datasets = raw_datasets.map(tokenize_function, batched=True)
-    logging.info("Datasets tokenized successfully.")
-
-    # Get train and validation datasets
-    train_dataset = tokenized_datasets['train']
-    val_dataset = tokenized_datasets['validation']
+    # No need to tokenize since the dataset already contains 'input_ids' and 'target_id'
+    train_dataset = raw_datasets['train']
+    val_dataset = raw_datasets['validation']
 
     return train_dataset, val_dataset
 
@@ -195,25 +188,25 @@ def initialize_model(tokenizer, device=None):
 class CustomDataCollator:
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
+        self.pad_token_id = tokenizer.pad_token_id
 
     def __call__(self, features):
-        # Extract input_ids from features
-        input_ids = [feature['input_ids'] for feature in features]
+        # Combine 'input_ids' and 'target_id' from the dataset
+        input_ids_list = [feature['input_ids'] + [feature['target_id']] for feature in features]
 
-        # Use tokenizer.__call__ method for padding
-        encoding = self.tokenizer(
-            input_ids,
-            padding=True,
-            return_tensors='pt'
-        )
+        # Manually pad sequences
+        max_length = max(len(ids) for ids in input_ids_list)
+        padded_input_ids = [ids + [self.pad_token_id] * (max_length - len(ids)) for ids in input_ids_list]
 
-        labels = encoding['input_ids'].clone()
+        input_ids = torch.tensor(padded_input_ids, dtype=torch.long)
 
-        # Shift labels to align with inputs
+        labels = input_ids.clone()
+
+        # Shift labels to the left
         labels[:, :-1] = labels[:, 1:]
         labels[:, -1] = -100  # Ignore the last token
 
-        return {'input_ids': encoding['input_ids'], 'labels': labels}
+        return {'input_ids': input_ids, 'labels': labels}
 
 class CustomWandbCallback(TrainerCallback):
     def __init__(self):
@@ -221,6 +214,7 @@ class CustomWandbCallback(TrainerCallback):
         self.eval_token_count = 0
         self.start_time = time.time()
         self.epoch_start_time = None
+        self.total_communication_time = 0.0
 
     def on_step_begin(self, args, state, control, **kwargs):
         if state.global_step == args.warmup_steps:
@@ -238,10 +232,15 @@ class CustomWandbCallback(TrainerCallback):
             else:
                 world_size = 1
             avg_tokens_per_node = self.train_token_count / world_size
-            wandb.log({'epoch_time': epoch_time, 'avg_tokens_per_node': avg_tokens_per_node})
-            # Reset token counts
+            wandb.log({
+                'epoch_time': epoch_time,
+                'avg_tokens_per_node': avg_tokens_per_node,
+                'communication_time': self.total_communication_time
+            })
+            # Reset token counts and communication time
             self.train_token_count = 0
             self.eval_token_count = 0
+            self.total_communication_time = 0.0
 
     def on_log(self, args, state, control, logs=None, **kwargs):
         if state.is_world_process_zero:
@@ -277,6 +276,12 @@ class CustomWandbCallback(TrainerCallback):
         if state.is_world_process_zero:
             wandb.log({'tokens_processed_train': self.train_token_count})
             wandb.log({'tokens_processed_eval': self.eval_token_count})
+
+    def on_step_end(self, args, state, control, **kwargs):
+        # Estimate communication time (this is a placeholder)
+        # In practice, you would measure the actual communication time
+        communication_time = 0.01  # Placeholder value
+        self.total_communication_time += communication_time
 
 def main():
     # Get rank and world size from environment variables
@@ -334,7 +339,7 @@ def main():
     # Load tokenizer and dataset
     tokenizer_path = os.path.abspath(tokenizer_path)
     tokenizer = load_tokenizer(tokenizer_path)
-    train_dataset, val_dataset = load_dataset_phase1(dataset_name, tokenizer)
+    train_dataset, val_dataset = load_dataset_phase1(dataset_name)
 
     # Prepare data collator
     data_collator = CustomDataCollator(tokenizer)
