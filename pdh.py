@@ -16,6 +16,7 @@ from transformers import (
     PreTrainedTokenizerFast,
     TrainingArguments,
     Trainer,
+    TrainerCallback,
 )
 from datasets import load_dataset
 from tqdm import tqdm
@@ -155,9 +156,16 @@ def load_dataset_phase1(dataset_name):
     raw_datasets = load_dataset(dataset_name)
     logging.info("Dataset loaded successfully.")
 
+    # Tokenize the datasets
+    def tokenize_function(examples):
+        return tokenizer(examples["text"], truncation=True)
+
+    tokenized_datasets = raw_datasets.map(tokenize_function, batched=True)
+    logging.info("Datasets tokenized successfully.")
+
     # Get train and validation datasets
-    train_dataset = raw_datasets['train']
-    val_dataset = raw_datasets['validation']
+    train_dataset = tokenized_datasets['train']
+    val_dataset = tokenized_datasets['validation']
 
     return train_dataset, val_dataset
 
@@ -189,15 +197,15 @@ class CustomDataCollator:
         self.tokenizer = tokenizer
 
     def __call__(self, features):
-        # Adjusted to use available keys in the dataset
-        input_ids_list = [feature['input_ids'] for feature in features]
-        target_ids = [feature['target_id'] for feature in features]
+        # Extract input_ids from features
+        input_ids = [feature['input_ids'] for feature in features]
 
-        # Combine input_ids and target_id
-        input_ids = [ids + [target_id] for ids, target_id in zip(input_ids_list, target_ids)]
-
-        # Pad sequences
-        encoding = self.tokenizer.pad({'input_ids': input_ids}, return_tensors='pt')
+        # Use tokenizer.__call__ method for padding
+        encoding = self.tokenizer(
+            input_ids,
+            padding=True,
+            return_tensors='pt'
+        )
 
         labels = encoding['input_ids'].clone()
 
@@ -206,6 +214,67 @@ class CustomDataCollator:
         labels[:, -1] = -100  # Ignore the last token
 
         return {'input_ids': encoding['input_ids'], 'labels': labels}
+
+class CustomWandbCallback(TrainerCallback):
+    def __init__(self):
+        self.train_token_count = 0
+        self.eval_token_count = 0
+        self.start_time = time.time()
+        self.epoch_start_time = None
+
+    def on_step_begin(self, args, state, control, **kwargs):
+        if state.global_step == args.warmup_steps:
+            logging.info("Warmup steps completed.")
+
+    def on_epoch_begin(self, args, state, control, **kwargs):
+        self.epoch_start_time = time.time()
+
+    def on_epoch_end(self, args, state, control, **kwargs):
+        epoch_time = time.time() - self.epoch_start_time
+        logging.info(f"Time for 1 epoch: {epoch_time:.2f} seconds")
+        if state.is_world_process_zero:
+            if torch.distributed.is_initialized():
+                world_size = torch.distributed.get_world_size()
+            else:
+                world_size = 1
+            avg_tokens_per_node = self.train_token_count / world_size
+            wandb.log({'epoch_time': epoch_time, 'avg_tokens_per_node': avg_tokens_per_node})
+            # Reset token counts
+            self.train_token_count = 0
+            self.eval_token_count = 0
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if state.is_world_process_zero:
+            # Compute perplexity if loss is in logs
+            if 'loss' in logs:
+                train_perplexity = math.exp(logs['loss'])
+                wandb.log({'train_perplexity': train_perplexity})
+            if 'eval_loss' in logs:
+                eval_perplexity = math.exp(logs['eval_loss'])
+                wandb.log({'eval_perplexity': eval_perplexity})
+
+    def on_train_batch_end(self, args, state, control, **kwargs):
+        # batch is in kwargs['inputs']
+        batch = kwargs.get('inputs')
+        if batch is not None:
+            input_ids = batch.get('input_ids')
+            if input_ids is not None:
+                batch_tokens = input_ids.numel()
+                self.train_token_count += batch_tokens
+
+    def on_eval_batch_end(self, args, state, control, **kwargs):
+        batch = kwargs.get('inputs')
+        if batch is not None:
+            input_ids = batch.get('input_ids')
+            if input_ids is not None:
+                batch_tokens = input_ids.numel()
+                self.eval_token_count += batch_tokens
+
+    def on_evaluate(self, args, state, control, **kwargs):
+        # After evaluation, log the total tokens processed
+        if state.is_world_process_zero:
+            wandb.log({'tokens_processed_train': self.train_token_count})
+            wandb.log({'tokens_processed_eval': self.eval_token_count})
 
 def main():
     # Get rank and world size from environment variables
@@ -309,7 +378,8 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         tokenizer=tokenizer,
-        data_collator=data_collator
+        data_collator=data_collator,
+        callbacks=[CustomWandbCallback()]
     )
 
     # Start training
