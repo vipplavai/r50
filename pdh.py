@@ -24,6 +24,8 @@ from tqdm import tqdm
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 
+import wandb  # Import wandb at the top
+
 # Suppress specific deprecation warnings
 warnings.filterwarnings("ignore", message="`clean_up_tokenization_spaces` was not set")
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -330,8 +332,10 @@ def main():
 
     # Initialize W&B logging only on Rank 0
     if rank == 0:
-        import wandb
         wandb.init(project="ddp_training_project", mode="online")
+    else:
+        # Disable wandb logging for other ranks
+        os.environ["WANDB_MODE"] = "disabled"
 
     # Barrier to ensure all processes have finished setup
     dist.barrier()
